@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { api, Todo, Category } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -31,9 +31,7 @@ export default function TodoApp() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [transientTodos, setTransientTodos] = useState<
-    Map<number, TransientTodo>
-  >(new Map());
+  const transientTodosRef = useRef<Map<number, TransientTodo>>(new Map());
 
   const { addToast } = useToast();
   const {
@@ -104,13 +102,13 @@ export default function TodoApp() {
   // Undo transient action
   const handleUndo = useCallback(
     (todoId: number) => {
-      const transient = transientTodos.get(todoId);
+      const transient = transientTodosRef.current.get(todoId);
       if (!transient) return;
 
-      // Clear timeout
+      // Clear timeout so the queued API call never fires
       clearTimeout(transient.timeoutId);
 
-      // Restore original state
+      // Restore original state based on action type
       if (transient.action === "delete") {
         setTodos((prev) =>
           [...prev, transient.todo].sort((a, b) => b.id - a.id)
@@ -121,16 +119,12 @@ export default function TodoApp() {
         );
       }
 
-      // Remove transient state
-      setTransientTodos((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(todoId);
-        return newMap;
-      });
+      // Drop transient entry now that it has been restored
+      transientTodosRef.current.delete(todoId);
 
       addToast({ message: "Action cancelled!" });
     },
-    [transientTodos, addToast]
+    [addToast]
   );
 
   // Handle completion with transient state (5s delay + undo)
@@ -145,15 +139,15 @@ export default function TodoApp() {
         )
       );
 
+      // Track if this action was undone
+      let wasUndone = false;
+
       // Set up transient state with undo option
       const timeoutId = setTimeout(async () => {
+        if (wasUndone) return; // Check if undo was clicked
         try {
           await api.updateTodo(todo.id, newCompleted);
-          setTransientTodos((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(todo.id);
-            return newMap;
-          });
+          transientTodosRef.current.delete(todo.id);
           addToast({
             message: `Task ${newCompleted ? "completed" : "reopened"}!`,
           });
@@ -169,25 +163,23 @@ export default function TodoApp() {
         }
       }, 5000);
 
-      // Store transient state
-      setTransientTodos((prev) =>
-        new Map(prev).set(todo.id, {
-          todo,
-          action: "complete",
-          timeoutId,
-        })
-      );
+      // Store transient state with undo flag
+      transientTodosRef.current.set(todo.id, {
+        todo,
+        action: "complete",
+        timeoutId,
+      });
 
-      // Show undo toast
+      // Show undo toast with callback that sets the flag
       addToast({
-        message: `Task will be ${
-          newCompleted ? "completed" : "reopened"
-        } in 5 seconds`,
+        message: `Task will be ${newCompleted ? "completed" : "reopened"}`,
         action: {
           label: "Undo",
-          onClick: () => handleUndo(todo.id),
+          onClick: () => {
+            wasUndone = true;
+            handleUndo(todo.id);
+          },
         },
-        duration: 5000,
       });
     },
     [addToast, handleUndo]
@@ -199,15 +191,15 @@ export default function TodoApp() {
       // Optimistically remove from UI
       setTodos((prev) => prev.filter((t) => t.id !== todo.id));
 
+      // Track if this action was undone
+      let wasUndone = false;
+
       // Set up transient state with undo option
       const timeoutId = setTimeout(async () => {
+        if (wasUndone) return; // Check if undo was clicked
         try {
           await api.deleteTodo(todo.id);
-          setTransientTodos((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(todo.id);
-            return newMap;
-          });
+          transientTodosRef.current.delete(todo.id);
           addToast({ message: "Task deleted!" });
         } catch (err) {
           // Revert on error
@@ -218,22 +210,22 @@ export default function TodoApp() {
       }, 5000);
 
       // Store transient state
-      setTransientTodos((prev) =>
-        new Map(prev).set(todo.id, {
-          todo,
-          action: "delete",
-          timeoutId,
-        })
-      );
+      transientTodosRef.current.set(todo.id, {
+        todo,
+        action: "delete",
+        timeoutId,
+      });
 
-      // Show undo toast
+      // Show undo toast with callback that sets the flag
       addToast({
-        message: "Task will be deleted in 5 seconds",
+        message: "Task will be deleted",
         action: {
           label: "Undo",
-          onClick: () => handleUndo(todo.id),
+          onClick: () => {
+            wasUndone = true;
+            handleUndo(todo.id);
+          },
         },
-        duration: 5000,
       });
     },
     [addToast, handleUndo]

@@ -29,11 +29,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const addToast = React.useCallback((toast: Omit<ToastProps, "id">) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setToasts((prev) => [...prev, { ...toast, id }]);
-
     const duration = toast.duration || 5000;
+    setToasts((prev) => [...prev, { ...toast, id, duration }]);
+
+    // Auto-remove toast after its duration
     setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      removeToast(id);
     }, duration);
 
     return id;
@@ -71,8 +72,34 @@ export function useToast() {
 function Toast({
   message,
   action,
+  duration,
   onClose,
 }: ToastProps & { onClose: () => void }) {
+  const [countdown, setCountdown] = React.useState(duration ? duration / 1000 : 0);
+
+  React.useEffect(() => {
+    if (duration) {
+      const interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [duration]);
+
+  const handleActionClick = () => {
+    if (action) {
+      action.onClick();
+      onClose(); // Close the toast after the action is performed
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -81,16 +108,13 @@ function Toast({
     >
       <div className="flex-1 p-4">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-50">
-          {message}
+          {message} {countdown > 0 && `(${countdown}s)`}
         </p>
       </div>
       <div className="flex border-l border-neutral-200 dark:border-neutral-800">
         {action && (
           <button
-            onClick={() => {
-              action.onClick();
-              onClose();
-            }}
+            onClick={handleActionClick}
             className="flex w-full items-center justify-center rounded-none rounded-r-lg border border-transparent p-4 text-sm font-medium text-neutral-900 hover:text-neutral-700 dark:text-neutral-50 dark:hover:text-neutral-300"
           >
             {action.label}
