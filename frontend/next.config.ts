@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Use static export only for production builds
+  ...(process.env.NODE_ENV === "production" && {
+    output: "export",
+  }),
 };
 
 export default nextConfig;

@@ -1,210 +1,246 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useCallback } from 'react'
-import { useForm } from 'react-hook-form'
-import { api, Todo, Category } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { useToast } from '@/components/ui/toast'
+import { useState, useEffect, useCallback } from "react";
+import { useForm } from "react-hook-form";
+import { api, Todo, Category } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/toast";
 
 // Form data type
 interface TodoFormData {
-  text: string
-  category: string
+  text: string;
+  category: string;
 }
 
 // Transient state for undo functionality
 interface TransientTodo {
-  todo: Todo
-  action: 'complete' | 'delete'
-  timeoutId: NodeJS.Timeout
+  todo: Todo;
+  action: "complete" | "delete";
+  timeoutId: NodeJS.Timeout;
 }
 
 export default function TodoApp() {
   // State
-  const [todos, setTodos] = useState<Todo[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [selectedCategory, setSelectedCategory] = useState<string>('All')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [transientTodos, setTransientTodos] = useState<Map<number, TransientTodo>>(new Map())
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [transientTodos, setTransientTodos] = useState<
+    Map<number, TransientTodo>
+  >(new Map());
 
-  const { addToast } = useToast()
-  const { register, handleSubmit, reset, formState: { errors }, setError: setFormError } = useForm<TodoFormData>()
+  const { addToast } = useToast();
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+    setError: setFormError,
+  } = useForm<TodoFormData>();
 
   // Fetch categories on mount
   const fetchCategories = useCallback(async () => {
     try {
-      const data = await api.getCategories()
-      setCategories(data)
+      const data = await api.getCategories();
+      setCategories(data);
     } catch (err) {
-      setError('Failed to fetch categories')
-      console.error(err)
+      setError("Failed to fetch categories");
+      console.error(err);
     }
-  }, [])
+  }, []);
 
   // Fetch todos (with optional category filter)
   const fetchTodos = useCallback(async () => {
     try {
-      setLoading(true)
-      setError(null)
-      const category = selectedCategory === 'All' ? undefined : selectedCategory
-      const data = await api.getTodos(category)
-      setTodos(data)
+      setLoading(true);
+      setError(null);
+      const category =
+        selectedCategory === "All" ? undefined : selectedCategory;
+      const data = await api.getTodos(category);
+      setTodos(data);
     } catch (err) {
-      setError('Failed to fetch todos')
-      console.error(err)
+      setError("Failed to fetch todos");
+      console.error(err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedCategory])
+  }, [selectedCategory]);
 
   // Initial data fetch
   useEffect(() => {
-    fetchCategories()
-    fetchTodos()
-  }, [fetchCategories, fetchTodos])
+    fetchCategories();
+    fetchTodos();
+  }, [fetchCategories, fetchTodos]);
 
   // Create new todo
   const onSubmit = async (data: TodoFormData) => {
     try {
-      await api.createTodo(data)
-      reset()
-      fetchTodos()
-      addToast({ message: 'Task created successfully!' })
-    } catch (err: any) {
+      await api.createTodo(data);
+      reset();
+      fetchTodos();
+      addToast({ message: "Task created successfully!" });
+    } catch (err: unknown) {
       // Handle 5-task limit error from backend
-      if (err.response?.status === 400) {
-        const errorMessage = err.response.data.error || 'Failed to create task'
-        setFormError('root', { message: errorMessage })
+      const error = err as {
+        response?: { status?: number; data?: { error?: string } };
+      };
+      if (error.response?.status === 400) {
+        const errorMessage =
+          error.response.data?.error || "Failed to create task";
+        setFormError("root", { message: errorMessage });
       } else {
-        setError('Failed to create task')
+        setError("Failed to create task");
       }
-      console.error(err)
+      console.error(err);
     }
-  }
-
-  // Handle completion with transient state (5s delay + undo)
-  const handleToggleComplete = useCallback((todo: Todo) => {
-    const newCompleted = !Boolean(todo.completed)
-
-    // Optimistically update UI
-    setTodos(prev => prev.map(t =>
-      t.id === todo.id ? { ...t, completed: newCompleted ? 1 : 0 } : t
-    ))
-
-    // Set up transient state with undo option
-    const timeoutId = setTimeout(async () => {
-      try {
-        await api.updateTodo(todo.id, newCompleted)
-        setTransientTodos(prev => {
-          const newMap = new Map(prev)
-          newMap.delete(todo.id)
-          return newMap
-        })
-        addToast({ message: `Task ${newCompleted ? 'completed' : 'reopened'}!` })
-      } catch (err) {
-        // Revert on error
-        setTodos(prev => prev.map(t =>
-          t.id === todo.id ? { ...t, completed: todo.completed } : t
-        ))
-        setError('Failed to update task')
-        console.error(err)
-      }
-    }, 5000)
-
-    // Store transient state
-    setTransientTodos(prev => new Map(prev).set(todo.id, {
-      todo,
-      action: 'complete',
-      timeoutId
-    }))
-
-    // Show undo toast
-    addToast({
-      message: `Task will be ${newCompleted ? 'completed' : 'reopened'} in 5 seconds`,
-      action: {
-        label: 'Undo',
-        onClick: () => handleUndo(todo.id)
-      },
-      duration: 5000
-    })
-  }, [addToast])
-
-  // Handle deletion with transient state (5s delay + undo)
-  const handleDelete = useCallback((todo: Todo) => {
-    // Optimistically remove from UI
-    setTodos(prev => prev.filter(t => t.id !== todo.id))
-
-    // Set up transient state with undo option
-    const timeoutId = setTimeout(async () => {
-      try {
-        await api.deleteTodo(todo.id)
-        setTransientTodos(prev => {
-          const newMap = new Map(prev)
-          newMap.delete(todo.id)
-          return newMap
-        })
-        addToast({ message: 'Task deleted!' })
-      } catch (err) {
-        // Revert on error
-        setTodos(prev => [...prev, todo].sort((a, b) => b.id - a.id))
-        setError('Failed to delete task')
-        console.error(err)
-      }
-    }, 5000)
-
-    // Store transient state
-    setTransientTodos(prev => new Map(prev).set(todo.id, {
-      todo,
-      action: 'delete',
-      timeoutId
-    }))
-
-    // Show undo toast
-    addToast({
-      message: 'Task will be deleted in 5 seconds',
-      action: {
-        label: 'Undo',
-        onClick: () => handleUndo(todo.id)
-      },
-      duration: 5000
-    })
-  }, [addToast])
+  };
 
   // Undo transient action
-  const handleUndo = useCallback((todoId: number) => {
-    const transient = transientTodos.get(todoId)
-    if (!transient) return
+  const handleUndo = useCallback(
+    (todoId: number) => {
+      const transient = transientTodos.get(todoId);
+      if (!transient) return;
 
-    // Clear timeout
-    clearTimeout(transient.timeoutId)
+      // Clear timeout
+      clearTimeout(transient.timeoutId);
 
-    // Restore original state
-    if (transient.action === 'delete') {
-      setTodos(prev => [...prev, transient.todo].sort((a, b) => b.id - a.id))
-    } else {
-      setTodos(prev => prev.map(t =>
-        t.id === todoId ? transient.todo : t
-      ))
-    }
+      // Restore original state
+      if (transient.action === "delete") {
+        setTodos((prev) =>
+          [...prev, transient.todo].sort((a, b) => b.id - a.id)
+        );
+      } else {
+        setTodos((prev) =>
+          prev.map((t) => (t.id === todoId ? transient.todo : t))
+        );
+      }
 
-    // Remove transient state
-    setTransientTodos(prev => {
-      const newMap = new Map(prev)
-      newMap.delete(todoId)
-      return newMap
-    })
+      // Remove transient state
+      setTransientTodos((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(todoId);
+        return newMap;
+      });
 
-    addToast({ message: 'Action cancelled!' })
-  }, [transientTodos, addToast])
+      addToast({ message: "Action cancelled!" });
+    },
+    [transientTodos, addToast]
+  );
+
+  // Handle completion with transient state (5s delay + undo)
+  const handleToggleComplete = useCallback(
+    (todo: Todo) => {
+      const newCompleted = !Boolean(todo.completed);
+
+      // Optimistically update UI
+      setTodos((prev) =>
+        prev.map((t) =>
+          t.id === todo.id ? { ...t, completed: newCompleted ? 1 : 0 } : t
+        )
+      );
+
+      // Set up transient state with undo option
+      const timeoutId = setTimeout(async () => {
+        try {
+          await api.updateTodo(todo.id, newCompleted);
+          setTransientTodos((prev) => {
+            const newMap = new Map(prev);
+            newMap.delete(todo.id);
+            return newMap;
+          });
+          addToast({
+            message: `Task ${newCompleted ? "completed" : "reopened"}!`,
+          });
+        } catch (err) {
+          // Revert on error
+          setTodos((prev) =>
+            prev.map((t) =>
+              t.id === todo.id ? { ...t, completed: todo.completed } : t
+            )
+          );
+          setError("Failed to update task");
+          console.error(err);
+        }
+      }, 5000);
+
+      // Store transient state
+      setTransientTodos((prev) =>
+        new Map(prev).set(todo.id, {
+          todo,
+          action: "complete",
+          timeoutId,
+        })
+      );
+
+      // Show undo toast
+      addToast({
+        message: `Task will be ${
+          newCompleted ? "completed" : "reopened"
+        } in 5 seconds`,
+        action: {
+          label: "Undo",
+          onClick: () => handleUndo(todo.id),
+        },
+        duration: 5000,
+      });
+    },
+    [addToast, handleUndo]
+  );
+
+  // Handle deletion with transient state (5s delay + undo)
+  const handleDelete = useCallback(
+    (todo: Todo) => {
+      // Optimistically remove from UI
+      setTodos((prev) => prev.filter((t) => t.id !== todo.id));
+
+      // Set up transient state with undo option
+      const timeoutId = setTimeout(async () => {
+        try {
+          await api.deleteTodo(todo.id);
+          setTransientTodos((prev) => {
+            const newMap = new Map(prev);
+            newMap.delete(todo.id);
+            return newMap;
+          });
+          addToast({ message: "Task deleted!" });
+        } catch (err) {
+          // Revert on error
+          setTodos((prev) => [...prev, todo].sort((a, b) => b.id - a.id));
+          setError("Failed to delete task");
+          console.error(err);
+        }
+      }, 5000);
+
+      // Store transient state
+      setTransientTodos((prev) =>
+        new Map(prev).set(todo.id, {
+          todo,
+          action: "delete",
+          timeoutId,
+        })
+      );
+
+      // Show undo toast
+      addToast({
+        message: "Task will be deleted in 5 seconds",
+        action: {
+          label: "Undo",
+          onClick: () => handleUndo(todo.id),
+        },
+        duration: 5000,
+      });
+    },
+    [addToast, handleUndo]
+  );
 
   // Filtered todos for display
-  const displayTodos = todos
+  const displayTodos = todos;
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-900 p-4 sm:p-8">
@@ -220,23 +256,31 @@ export default function TodoApp() {
                 <div>
                   <Input
                     placeholder="Enter task..."
-                    {...register('text', { required: 'Task text is required' })}
+                    {...register("text", { required: "Task text is required" })}
                   />
                   {errors.text && (
-                    <p className="text-sm text-red-500 mt-1">{errors.text.message}</p>
+                    <p className="text-sm text-red-500 mt-1">
+                      {errors.text.message}
+                    </p>
                   )}
                 </div>
                 <div>
-                  <Select {...register('category', { required: 'Category is required' })}>
+                  <Select
+                    {...register("category", {
+                      required: "Category is required",
+                    })}
+                  >
                     <option value="">Select category</option>
-                    {categories.map(cat => (
+                    {categories.map((cat) => (
                       <option key={cat.name} value={cat.name}>
                         {cat.name}
                       </option>
                     ))}
                   </Select>
                   {errors.category && (
-                    <p className="text-sm text-red-500 mt-1">{errors.category.message}</p>
+                    <p className="text-sm text-red-500 mt-1">
+                      {errors.category.message}
+                    </p>
                   )}
                 </div>
               </div>
@@ -255,13 +299,15 @@ export default function TodoApp() {
 
             {/* Category Filter */}
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Filter by Category</label>
+              <label className="block text-sm font-medium mb-2">
+                Filter by Category
+              </label>
               <Select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
                 <option value="All">All Categories</option>
-                {categories.map(cat => (
+                {categories.map((cat) => (
                   <option key={cat.name} value={cat.name}>
                     {cat.name}
                   </option>
@@ -296,11 +342,13 @@ export default function TodoApp() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {displayTodos.map(todo => (
+                    {displayTodos.map((todo) => (
                       <div
                         key={todo.id}
                         className={`flex items-center justify-between p-4 bg-white dark:bg-neutral-800 rounded-lg border ${
-                          todo.completed ? 'border-green-200 dark:border-green-800' : 'border-neutral-200 dark:border-neutral-700'
+                          todo.completed
+                            ? "border-green-200 dark:border-green-800"
+                            : "border-neutral-200 dark:border-neutral-700"
                         }`}
                       >
                         <div className="flex items-center gap-3 flex-1">
@@ -308,7 +356,13 @@ export default function TodoApp() {
                             checked={Boolean(todo.completed)}
                             onChange={() => handleToggleComplete(todo)}
                           />
-                          <span className={`flex-1 ${todo.completed ? 'line-through text-neutral-500' : ''}`}>
+                          <span
+                            className={`flex-1 ${
+                              todo.completed
+                                ? "line-through text-neutral-500"
+                                : ""
+                            }`}
+                          >
                             {todo.text}
                           </span>
                           <span className="px-2 py-1 text-xs rounded-full bg-neutral-100 dark:bg-neutral-700">
@@ -332,5 +386,5 @@ export default function TodoApp() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

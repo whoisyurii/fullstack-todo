@@ -6,8 +6,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.initializeDatabase = initializeDatabase;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+// Use persistent volume path if available (for Fly.io), otherwise use local path
+const dbPath = process.env.DATABASE_PATH || '/data/todos.db';
+const dbDir = path_1.default.dirname(dbPath);
+// Ensure directory exists
+if (!fs_1.default.existsSync(dbDir)) {
+    fs_1.default.mkdirSync(dbDir, { recursive: true });
+}
 // Initialize SQLite database
-const db = new better_sqlite3_1.default(path_1.default.join(__dirname, '../todos.db'));
+const db = new better_sqlite3_1.default(dbPath);
+console.log(`Database location: ${dbPath}`);
 // Create tables if they don't exist
 function initializeDatabase() {
     // Create categories table

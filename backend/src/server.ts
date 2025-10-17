@@ -33,23 +33,18 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// In production, serve Next.js frontend
-if (isProduction && process.env.FRONTEND_PATH) {
-  const frontendPath = process.env.FRONTEND_PATH;
+// In production, serve static frontend files
+if (isProduction) {
+  // Serve static files from public directory
+  app.use(express.static(path.join(__dirname, "..", "public")));
 
-  // Serve Next.js static files
-  app.use("/_next", express.static(path.join(frontendPath, ".next")));
-  app.use("/public", express.static(path.join(frontendPath, "public")));
-
-  // Serve Next.js app for all other routes
+  // Serve index.html for all other routes (SPA fallback)
   app.get("*", (req, res) => {
     // Skip API routes
-    if (req.path.startsWith("/api/")) {
+    if (req.path.startsWith("/api/") || req.path === "/health") {
       return res.status(404).json({ error: "Not found" });
     }
-    res.sendFile(
-      path.join(frontendPath, ".next", "server", "pages", "index.html")
-    );
+    res.sendFile(path.join(__dirname, "..", "public", "index.html"));
   });
 }
 
@@ -57,6 +52,6 @@ if (isProduction && process.env.FRONTEND_PATH) {
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
   if (isProduction) {
-    console.log(`Serving frontend from ${process.env.FRONTEND_PATH}`);
+    console.log(`Serving static frontend from public directory`);
   }
 });

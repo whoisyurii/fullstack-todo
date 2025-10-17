@@ -9,6 +9,9 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 COPY frontend/ ./
+
+# Set NODE_ENV to production for static export
+ENV NODE_ENV=production
 RUN npm run build
 
 # Stage 2: Build Backend  
@@ -32,10 +35,8 @@ COPY backend/package*.json ./
 RUN npm ci --production
 COPY --from=backend-builder /app/backend/dist ./dist
 
-# Copy frontend build (standalone Next.js)
-COPY --from=frontend-builder /app/frontend/.next/standalone ./frontend
-COPY --from=frontend-builder /app/frontend/.next/static ./frontend/.next/static
-COPY --from=frontend-builder /app/frontend/public ./frontend/public
+# Copy frontend static export
+COPY --from=frontend-builder /app/frontend/out ./public
 
 # Create data directory for SQLite
 RUN mkdir -p /data
@@ -45,6 +46,5 @@ EXPOSE 8080
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV DATABASE_PATH=/data/todos.db
-ENV FRONTEND_PATH=/app/frontend
 
 CMD ["node", "dist/server.js"]
