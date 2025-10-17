@@ -26,7 +26,4 @@ primary_region = 'ams'
   cpu_kind = 'shared'
   cpus = 1
 
-# Persistent volume for SQLite database
-[[mounts]]
-  source = "sqlite_data"
-  destination = "/data"
+# Data is stored inside the container; add a Fly volume mount if persistence is needed later.
