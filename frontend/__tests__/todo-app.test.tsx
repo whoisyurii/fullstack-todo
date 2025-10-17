@@ -25,57 +25,55 @@ jest.mock("@/lib/api", () => {
       createTodo: jest.fn(),
       updateTodo: jest.fn(),
       deleteTodo: jest.fn(),
-      bulkUpdateTodos: jest.fn(),
     },
   };
 });
 
-describe("TodoApp bulk actions", () => {
+describe("TodoApp interactions", () => {
   const categories = [{ name: "Work" }];
   const todos = [
     { id: 1, text: "Task A", category: "Work", completed: 0 },
     { id: 2, text: "Task B", category: "Work", completed: 0 },
   ];
 
+  beforeAll(() => {
+    jest.useFakeTimers();
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     (api.getCategories as jest.Mock).mockResolvedValue(categories);
     (api.getTodos as jest.Mock).mockResolvedValue(todos);
-    (api.bulkUpdateTodos as jest.Mock).mockResolvedValue(
-      todos.map((todo) => ({ ...todo, completed: 1 }))
-    );
+    (api.updateTodo as jest.Mock).mockResolvedValue({
+      ...todos[0],
+      completed: 1,
+    });
   });
 
-  it("allows selecting all tasks and marking them done", async () => {
-    const user = userEvent.setup();
+  it("marks a task as completed when the checkbox is toggled", async () => {
+    const user = userEvent.setup({
+      advanceTimers: jest.advanceTimersByTime.bind(jest),
+    });
 
     render(<TodoApp />);
 
     expect(await screen.findByText("Task A")).toBeInTheDocument();
 
-    const selectAllButton = screen.getByRole("button", { name: /select all/i });
-    await user.click(selectAllButton);
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes).toHaveLength(2);
 
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
-    expect(selectAllButton).toHaveTextContent(/clear selection/i);
+    await user.click(checkboxes[0]);
 
-    const bulkCompleteButton = screen.getByRole("button", {
-      name: /mark selected done/i,
-    });
-
-    expect(bulkCompleteButton).not.toBeDisabled();
-
-    await user.click(bulkCompleteButton);
+  jest.advanceTimersByTime(5000);
 
     await waitFor(() => {
-      expect(api.bulkUpdateTodos).toHaveBeenCalledWith([1, 2], true);
+      expect(api.updateTodo).toHaveBeenCalledWith(1, true);
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("Task A")).toHaveClass("line-through");
-      expect(screen.getByText("Task B")).toHaveClass("line-through");
-    });
-
-    expect(screen.queryByText("2 selected")).not.toBeInTheDocument();
+    expect(screen.getByText("Task A")).toHaveClass("line-through");
   });
 });
