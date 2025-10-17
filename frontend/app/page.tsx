@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useForm } from "react-hook-form";
 import { api, Todo, Category } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -32,6 +39,7 @@ export default function TodoApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const transientTodosRef = useRef<Map<number, TransientTodo>>(new Map());
+  const [selectedTodos, setSelectedTodos] = useState<Set<number>>(new Set());
 
   const { addToast } = useToast();
   const {
@@ -126,6 +134,87 @@ export default function TodoApp() {
     },
     [addToast]
   );
+
+  // Keep selection in sync when todo list changes
+  useEffect(() => {
+    setSelectedTodos((prev) => {
+      const validIds = new Set(todos.map((todo) => todo.id));
+      let changed = false;
+      const next = new Set<number>();
+
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+
+      if (!changed && next.size === prev.size) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [todos]);
+
+  // Toggle individual selection
+  const handleSelectTodo = useCallback((id: number) => {
+    setSelectedTodos((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Toggle select all for current list
+  const handleSelectAll = useCallback(() => {
+    setSelectedTodos((prev) => {
+      if (todos.length === 0) {
+        return prev;
+      }
+
+      if (prev.size === todos.length) {
+        return new Set();
+      }
+
+      return new Set(todos.map((todo) => todo.id));
+    });
+  }, [todos]);
+
+  // Bulk mark selected tasks as complete
+  const handleBulkComplete = useCallback(async () => {
+    if (selectedTodos.size === 0) return;
+
+    const ids = Array.from(selectedTodos);
+    const idSet = new Set(ids);
+
+    try {
+      await api.bulkUpdateTodos(ids, true);
+      setError(null);
+      ids.forEach((id) => {
+        const transient = transientTodosRef.current.get(id);
+        if (transient) {
+          clearTimeout(transient.timeoutId);
+          transientTodosRef.current.delete(id);
+        }
+      });
+      setTodos((prev) =>
+        prev.map((todo) =>
+          idSet.has(todo.id) ? { ...todo, completed: 1 } : todo
+        )
+      );
+      setSelectedTodos(new Set());
+      addToast({ message: "Selected tasks marked as done!" });
+    } catch (err) {
+      setError("Failed to update selected tasks");
+      console.error(err);
+    }
+  }, [selectedTodos, addToast]);
 
   // Handle completion with transient state (5s delay + undo)
   const handleToggleComplete = useCallback(
@@ -233,6 +322,30 @@ export default function TodoApp() {
 
   // Filtered todos for display
   const displayTodos = todos;
+  const hasSelection = selectedTodos.size > 0;
+  const isAllSelected =
+    displayTodos.length > 0 && selectedTodos.size === displayTodos.length;
+
+  const handleRowSelectClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>, todoId: number) => {
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-no-select]")) {
+        return;
+      }
+      handleSelectTodo(todoId);
+    },
+    [handleSelectTodo]
+  );
+
+  const handleRowKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>, todoId: number) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleSelectTodo(todoId);
+      }
+    },
+    [handleSelectTodo]
+  );
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-900 p-4 sm:p-8">
@@ -324,6 +437,29 @@ export default function TodoApp() {
             {/* Task List */}
             {!loading && (
               <>
+                {displayTodos.length > 0 && (
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleSelectAll}
+                      disabled={displayTodos.length === 0}
+                    >
+                      {isAllSelected ? "Clear selection" : "Select all"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleBulkComplete}
+                      disabled={!hasSelection}
+                    >
+                      Mark selected done
+                    </Button>
+                    {hasSelection && (
+                      <span className="text-sm text-neutral-600 dark:text-neutral-300">
+                        {selectedTodos.size} selected
+                      </span>
+                    )}
+                  </div>
+                )}
                 {displayTodos.length === 0 ? (
                   /* Empty State */
                   <div className="text-center py-12">
@@ -334,42 +470,59 @@ export default function TodoApp() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {displayTodos.map((todo) => (
-                      <div
-                        key={todo.id}
-                        className={`flex items-center justify-between p-4 bg-white dark:bg-neutral-800 rounded-lg border ${
-                          todo.completed
-                            ? "border-green-200 dark:border-green-800"
-                            : "border-neutral-200 dark:border-neutral-700"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 flex-1">
-                          <Checkbox
-                            checked={Boolean(todo.completed)}
-                            onChange={() => handleToggleComplete(todo)}
-                          />
-                          <span
-                            className={`flex-1 ${
-                              todo.completed
-                                ? "line-through text-neutral-500"
-                                : ""
-                            }`}
-                          >
-                            {todo.text}
-                          </span>
-                          <span className="px-2 py-1 text-xs rounded-full bg-neutral-100 dark:bg-neutral-700">
-                            {todo.category}
-                          </span>
-                        </div>
-                        <Button
-                          variant="destructive"
-                          onClick={() => handleDelete(todo)}
-                          className="ml-4"
+                    {displayTodos.map((todo) => {
+                      const isSelected = selectedTodos.has(todo.id);
+                      return (
+                        <div
+                          key={todo.id}
+                          className={`flex items-center justify-between p-4 bg-white dark:bg-neutral-800 rounded-lg border cursor-pointer ${
+                            todo.completed
+                              ? "border-green-200 dark:border-green-800"
+                              : "border-neutral-200 dark:border-neutral-700"
+                          } ${
+                            isSelected
+                              ? "ring-2 ring-neutral-400 dark:ring-neutral-600"
+                              : ""
+                          }`}
+                          tabIndex={0}
+                          role="button"
+                          aria-pressed={isSelected}
+                          onClick={(event) => handleRowSelectClick(event, todo.id)}
+                          onKeyDown={(event) => handleRowKeyDown(event, todo.id)}
                         >
-                          Delete
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="flex items-center gap-3 flex-1">
+                            <Checkbox
+                              checked={Boolean(todo.completed)}
+                              onChange={() => handleToggleComplete(todo)}
+                              data-no-select
+                            />
+                            <span
+                              className={`flex-1 ${
+                                todo.completed
+                                  ? "line-through text-neutral-500"
+                                  : ""
+                              }`}
+                            >
+                              {todo.text}
+                            </span>
+                            <span className="px-2 py-1 text-xs rounded-full bg-neutral-100 dark:bg-neutral-700">
+                              {todo.category}
+                            </span>
+                          </div>
+                          <Button
+                            variant="destructive"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDelete(todo);
+                            }}
+                            data-no-select
+                            className="ml-4"
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>

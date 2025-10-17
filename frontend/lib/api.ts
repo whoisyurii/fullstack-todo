@@ -57,6 +57,18 @@ export const api = {
     return response.data;
   },
 
+  // Bulk update completion status
+  bulkUpdateTodos: async (
+    ids: number[],
+    completed: boolean
+  ): Promise<Todo[]> => {
+    const response = await apiClient.patch<{ updated: Todo[] }>(`/todos/bulk`, {
+      ids,
+      completed,
+    });
+    return response.data.updated;
+  },
+
   // Delete a todo
   deleteTodo: async (id: number): Promise<void> => {
     await apiClient.delete(`/todos/${id}`);
